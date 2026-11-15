@@ -1,0 +1,43 @@
+plugins { id 'com.android.application' }
+
+def runNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1') as Integer
+
+android {
+    namespace 'com.chemspark.imat'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'com.chemspark.imat'
+        minSdk 26
+        targetSdk 34
+        versionCode runNumber
+        versionName "1.0.${runNumber}"
+    }
+    signingConfigs {
+        release {
+            storeFile file('chemspark.keystore')
+            storePassword 'chemspark'
+            keyAlias 'chemspark'
+            keyPassword 'chemspark'
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+    sourceSets { main { assets.srcDirs += "$buildDir/webassets" } }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// Copy the web app (index.html, css, js) from the repo root into the APK assets.
+tasks.register('copyWebApp', Copy) {
+    from(rootProject.file('..')) {
+        include 'index.html', 'css/**', 'js/**'
+    }
+    into "$buildDir/webassets/www"
+}
+preBuild.dependsOn copyWebApp
