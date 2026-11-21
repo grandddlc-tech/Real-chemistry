@@ -7,15 +7,19 @@
   const SCORE = { right: 1.5, wrong: -0.4, blank: 0 };
   const SECS_PER_Q = 100; // IMAT pace: 60 questions in 100 minutes
   const LETTERS = ['A', 'B', 'C', 'D', 'E'];
+  const INTERVALS = [1, 3, 7, 16, 35]; // days between recall sessions, stage 1 → 5
+  const RECALL_MAX = 15;               // questions per recall session
+  const DAY = 86400000;
 
   /* ------------------------------------------------------------ storage */
   const KEY = 'chemspark.imat.v1';
-  const blank = () => ({ v: 1, attempts: [], mistakes: {}, fixed: {}, reviewed: {}, flash: {}, days: [], ui: { prefs: { mode: 'practice', count: 20, topic: 'all' }, sub: {} } });
+  const blank = () => ({ v: 1, attempts: [], mistakes: {}, fixed: {}, reviewed: {}, flash: {}, days: [], srs: {}, ui: { prefs: { mode: 'practice', count: 20, topic: 'all' }, sub: {} } });
   let S = blank();
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) S = Object.assign(blank(), JSON.parse(raw));
     S.ui = Object.assign(blank().ui, S.ui || {});
+    S.srs = S.srs || {};
   } catch (e) { /* storage unavailable: run in memory */ }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } }
   function today() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
@@ -49,6 +53,49 @@
   const pct = (x) => Math.round(x * 100);
   const fmtDate = (ts) => new Date(ts).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   const mmss = (s) => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+
+  /* ------------------------------------------------------------ spaced recall */
+  const dayStart = (ts) => { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const addDays = (ts, n) => { const d = new Date(dayStart(ts)); d.setDate(d.getDate() + n); return d.getTime(); };
+  const daysUntil = (ts) => Math.round((dayStart(ts) - dayStart(Date.now())) / DAY);
+  const fmtDay = (ts) => new Date(ts).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+  const relDay = (n) => n === 0 ? 'today' : n === 1 ? 'tomorrow' : n > 1 ? `in ${n} days` : `${-n} day${n === -1 ? '' : 's'} overdue`;
+  const srsKey = (cid, sid) => cid + ':' + sid;
+  function recallPool(ch, sid) { return ch.questions.filter((q) => (ch.topicSection || {})[q.topic] === sid); }
+  function recallCount(ch, sid) { return Math.min(RECALL_MAX, recallPool(ch, sid).length); }
+  function srsStatus(ch, sid) {
+    const r = S.srs[srsKey(ch.id, sid)];
+    if (!r) return { state: 'new', level: 0, r: null };
+    const d = daysUntil(r.next);
+    if (d <= 0) return { state: d < 0 ? 'overdue' : 'due', level: r.level, days: d, r };
+    return { state: r.level >= INTERVALS.length ? 'locked' : 'scheduled', level: r.level, days: d, r };
+  }
+  function dueList() {
+    const out = [];
+    CH.forEach((ch) => ch.sections.forEach((s) => {
+      const st = srsStatus(ch, s.id);
+      if ((st.state === 'due' || st.state === 'overdue') && recallCount(ch, s.id)) out.push({ ch, s, st });
+    }));
+    return out;
+  }
+  // Update the schedule after a recall session and say what happened.
+  function srsApply(cid, sid, acc) {
+    const k = srsKey(cid, sid);
+    const cur = S.srs[k] || { level: 0, next: 0, sessions: [] };
+    const now = Date.now();
+    const wasDue = !cur.next || daysUntil(cur.next) <= 0;
+    let level = cur.level, next, outcome;
+    if (acc >= 0.8 && !wasDue) { outcome = 'early'; next = cur.next; }
+    else if (acc >= 0.8) { level = Math.min(level + 1, INTERVALS.length); outcome = level >= INTERVALS.length ? 'locked' : 'up'; next = addDays(now, INTERVALS[level - 1]); }
+    else if (acc >= 0.6) { outcome = 'hold'; next = addDays(now, level > 0 ? INTERVALS[level - 1] : 1); }
+    else { outcome = 'reset'; level = 0; next = addDays(now, 1); }
+    const sessions = (cur.sessions || []).concat([{ date: now, acc: +acc.toFixed(3) }]).slice(-30);
+    S.srs[k] = { level, next, last: now, sessions };
+    return { sid, outcome, level, prevLevel: cur.level, next, acc };
+  }
+  function stageTrack(level) {
+    return `<div class="stages" aria-label="Stage ${level} of ${INTERVALS.length}">${INTERVALS.map((d, i) => `<span class="stage ${i < level ? 'on' : ''}"><i></i><small>${d}d</small></span>`).join('')}</div>`;
+  }
 
   function ring(value, size, label) {
     const r = (size - 10) / 2, c = 2 * Math.PI * r, off = c * (1 - Math.max(0, Math.min(1, value)));
@@ -86,7 +133,7 @@
 
   function parse() {
     const h = location.hash.replace('#', '');
-    const m = h.match(/^(c\d+)-(review|test|figures|mistakes|progress)$/);
+    const m = h.match(/^(c\d+)-(review|test|recall|figures|mistakes|progress)$/);
     if (m && byId(m[1])) return { view: 'chapter', cid: m[1], tab: m[2] };
     return { view: 'home' };
   }
@@ -126,6 +173,10 @@
         <div><b>${streak()}</b><span>day streak</span></div>
       </div>
     </section>
+    ${(() => { const due = dueList(); return due.length ? `<section class="block"><div class="panel duebox">
+      <div><span class="eyebrow">Spaced recall</span><h2>${due.length} recall session${due.length === 1 ? '' : 's'} due</h2><p class="muted">Do them today to keep the schedule on track.</p></div>
+      <div class="due-links">${due.map(({ ch, s, st }) => `<a class="btn ${st.state === 'overdue' ? 'warn' : 'primary'} small" href="#${ch.id}-recall">Ch ${ch.number} · ${esc(s.id)} ${esc(s.title)}${st.state === 'overdue' ? ' · ' + relDay(st.days) : ''}</a>`).join('')}</div>
+    </div></section>` : ''; })()}
     <section class="block">
       <div class="block-head"><h2>Choose a chapter</h2><span class="muted small">${CH.length} chapter${CH.length === 1 ? '' : 's'} loaded</span></div>
       <div class="chapters">
@@ -144,6 +195,7 @@
             <div class="chapter-actions">
               <a class="btn ghost small" href="#${ch.id}-review">Review</a>
               <a class="btn primary small" href="#${ch.id}-test">Start a test</a>
+              <a class="btn ghost small" href="#${ch.id}-recall">Recall</a>
               <a class="btn ghost small" href="#${ch.id}-figures">Figures</a>
               ${st.mistakes ? `<a class="btn ghost small warn" href="#${ch.id}-mistakes">${st.mistakes} mistakes</a>` : ''}
             </div>
@@ -160,10 +212,13 @@
   /* ------------------------------------------------------------ chapter shell */
   function viewChapter(ch, tab) {
     const st = chStats(ch);
-    const tabs = [['review', 'Review'], ['test', 'Test'], ['figures', 'Figures'], ['mistakes', 'Mistakes'], ['progress', 'Progress']];
+    const tabs = [['review', 'Review'], ['test', 'Test'], ['recall', 'Recall'], ['figures', 'Figures'], ['mistakes', 'Mistakes'], ['progress', 'Progress']];
+    const dueN = ch.sections.filter((s) => { const x = srsStatus(ch, s.id).state; return x === 'due' || x === 'overdue'; }).length;
+    const liveTab = run && run.cid === ch.id && !run.finished ? (run.source === 'recall' ? 'recall' : 'test') : '';
     let body = '';
     if (tab === 'review') body = viewReview(ch);
     if (tab === 'test') body = viewTest(ch);
+    if (tab === 'recall') body = viewRecall(ch);
     if (tab === 'figures') body = viewFigures(ch);
     if (tab === 'mistakes') body = viewMistakes(ch);
     if (tab === 'progress') body = viewProgress(ch, st);
@@ -176,7 +231,7 @@
       </div>
     </section>
     <nav class="tabs" aria-label="Chapter sections">
-      ${tabs.map(([k, l]) => `<a href="#${ch.id}-${k}" class="tab ${k === tab ? 'on' : ''}" ${k === tab ? 'aria-current="page"' : ''}>${l}${k === 'mistakes' && st.mistakes ? `<i class="badge">${st.mistakes}</i>` : ''}${k === 'test' && run && run.cid === ch.id && !run.finished ? '<i class="badge live">live</i>' : ''}</a>`).join('')}
+      ${tabs.map(([k, l]) => `<a href="#${ch.id}-${k}" class="tab ${k === tab ? 'on' : ''}" ${k === tab ? 'aria-current="page"' : ''}>${l}${k === 'mistakes' && st.mistakes ? `<i class="badge">${st.mistakes}</i>` : ''}${k === 'recall' && dueN ? `<i class="badge due">${dueN} due</i>` : ''}${k === liveTab ? '<i class="badge live">live</i>' : ''}</a>`).join('')}
     </nav>
     <div class="tabbody">${body}</div>`;
   }
@@ -290,7 +345,7 @@
     let picked = shuffle(pool);
     if (!opts.qids) picked = picked.slice(0, Math.min(opts.count, picked.length));
     run = {
-      cid: ch.id, mode: opts.mode, source: opts.source || 'test',
+      cid: ch.id, mode: opts.mode, source: opts.source || 'test', unit: opts.unit || null,
       items: picked.map((q) => ({ qid: q.id, order: shuffle([0, 1, 2, 3, 4]), pick: null, locked: false })),
       i: 0, start: Date.now(), limit: opts.mode === 'exam' ? picked.length * SECS_PER_Q : 0, finished: false, result: null
     };
@@ -325,7 +380,8 @@
     }
     const total = run.items.length;
     const score = correct * SCORE.right + wrong * SCORE.wrong;
-    const res = { cid: ch.id, date: Date.now(), mode: run.mode, source: run.source, total, correct, wrong, blank: blankN, score: +score.toFixed(2), max: total * SCORE.right, secs: Math.round((Date.now() - run.start) / 1000), topics };
+    const res = { cid: ch.id, date: Date.now(), mode: run.mode, source: run.source, unit: run.unit, total, correct, wrong, blank: blankN, score: +score.toFixed(2), max: total * SCORE.right, secs: Math.round((Date.now() - run.start) / 1000), limit: run.limit, topics };
+    if (run.source === 'recall' && run.unit) res.srs = srsApply(ch.id, run.unit, correct / total);
     S.attempts.push(res);
     if (S.attempts.length > 300) S.attempts.shift();
     touchDay(); save();
@@ -333,13 +389,14 @@
   }
 
   function viewTest(ch) {
-    if (run && run.cid === ch.id) return run.finished ? viewResults(ch) : viewQuestion(ch);
+    if (run && run.cid === ch.id && run.source !== 'recall') return run.finished ? viewResults(ch) : viewQuestion(ch);
+    const recallLive = run && run.cid === ch.id && run.source === 'recall' && !run.finished;
     const P = S.ui.prefs;
     const topicCounts = {};
     ch.questions.forEach((q) => { topicCounts[q.topic] = (topicCounts[q.topic] || 0) + 1; });
     const st = chStats(ch);
     const last = st.all.slice(-4).reverse();
-    return `<div class="setup">
+    return `${recallLive ? `<a class="livebar" href="#${ch.id}-recall">A timed recall session is running. Tap to go back to it →</a>` : ''}<div class="setup">
       <section class="panel setup-main">
         <span class="eyebrow">New test</span>
         <h2>IMAT-style test</h2>
@@ -380,7 +437,7 @@
     const left = run.limit ? run.limit - (Date.now() - run.start) / 1000 : 0;
     return `<div class="quiz">
       <div class="quiz-top">
-        <div class="quiz-meta"><b>Question ${run.i + 1}</b><span class="muted"> / ${n}</span><span class="chip">${fmt(ch.topics[q.topic])}</span><span class="diff d${q.d}" title="Difficulty">${'●'.repeat(q.d)}${'○'.repeat(3 - q.d)}</span></div>
+        <div class="quiz-meta"><b>Question ${run.i + 1}</b><span class="muted"> / ${n}</span><span class="chip">${fmt(ch.topics[q.topic])}</span>${run.source === 'recall' ? `<span class="chip recall">Recall ${esc(run.unit)}</span>` : ''}<span class="diff d${q.d}" title="Difficulty">${'●'.repeat(q.d)}${'○'.repeat(3 - q.d)}</span></div>
         <div class="quiz-right">${run.mode === 'exam' ? `<span class="timer ${left < 60 ? 'low' : ''}" id="timer" aria-label="Time left">${mmss(left)}</span>` : `<span class="chip ghost">${run.source === 'mistakes' ? 'Mistake practice' : 'Practice'}</span>`}
           <button class="btn ghost small" data-act="quit" type="button">Quit</button></div>
       </div>
@@ -422,21 +479,22 @@
       <section class="panel res-hero">
         <div class="res-ring">${ring(ratio, 150, `${r.score}`)}<small>of ${r.max} points</small></div>
         <div class="res-info">
-          <span class="eyebrow">${r.source === 'mistakes' ? 'Mistake practice' : r.mode === 'exam' ? 'Exam result' : 'Practice result'}</span>
+          <span class="eyebrow">${r.source === 'recall' ? `Recall · section ${esc(r.unit)}` : r.source === 'mistakes' ? 'Mistake practice' : r.mode === 'exam' ? 'Exam result' : 'Practice result'}</span>
           <h2>${verdict}</h2>
           <div class="res-stats">
             <div class="good"><b>${r.correct}</b><span>correct</span></div>
             <div class="bad"><b>${r.wrong}</b><span>wrong</span></div>
             <div><b>${r.blank}</b><span>blank</span></div>
-            <div><b>${mmss(r.secs)}</b><span>time</span></div>
+            <div><b>${mmss(r.secs)}</b><span>${r.limit ? 'of ' + mmss(r.limit) : 'time'}</span></div>
           </div>
           <div class="res-actions">
             ${wrongIds.length ? `<button class="btn primary" data-act="retry-wrong" type="button">Retry the ${wrongIds.length} I missed</button>` : ''}
-            <button class="btn ghost" data-act="new-test" type="button">New test</button>
+            <button class="btn ghost" data-act="new-test" type="button">${r.source === 'recall' ? 'Back to recall plan' : 'New test'}</button>
             <a class="btn ghost" href="#${ch.id}-mistakes">Open mistakes</a>
           </div>
         </div>
       </section>
+      ${r.srs ? scheduleCard(r.srs) : ''}
       <section class="panel">
         <h3>By topic</h3>
         <div class="tbars">${Object.entries(r.topics).map(([t, v]) => `<div class="tbar"><span>${fmt(ch.topics[t])}</span><div class="bar"><i style="width:${(v[0] / v[1]) * 100}%"></i></div><b>${v[0]}/${v[1]}</b></div>`).join('')}</div>
@@ -458,6 +516,65 @@
       <ul class="ropts">${order.map((oi, pos) => `<li class="${oi === q.a ? 'right' : oi === pick ? 'wrong' : ''}"><span class="letter">${LETTERS[pos]}</span>${fmt(q.o[oi])}${oi === pick && oi !== q.a ? '<em>your answer</em>' : ''}${oi === q.a ? '<em>correct</em>' : ''}</li>`).join('')}</ul>
       <div class="note"><span class="callout-tag">Note</span><p>${fmt(q.ex)}</p></div>
     </article>`;
+  }
+
+  function scheduleCard(x) {
+    const n = daysUntil(x.next);
+    const msg = {
+      up: `Stage ${x.level} of ${INTERVALS.length} reached. Come back ${relDay(n)} and the gap grows again.`,
+      locked: `All ${INTERVALS.length} stages done: this section is locked in. One check-up ${relDay(n)} keeps it there.`,
+      hold: `Between 60% and 80%, so you stay on stage ${x.level} and repeat the same gap.`,
+      reset: `Below 60%, so the schedule starts again from stage 0. Read the notes for this section, then try again tomorrow.`,
+      early: `This was before the due date, so it counts as extra practice and doesn't move you up a stage. Your scheduled recall stays the same.`
+    }[x.outcome];
+    return `<section class="panel schedule ${x.outcome}">
+      <div class="sched-date"><span class="eyebrow">Next recall</span><b>${fmtDay(x.next)}</b><small>${relDay(n)}</small></div>
+      <div class="sched-info"><h3>${x.outcome === 'reset' ? 'Schedule restarted' : x.outcome === 'locked' ? 'Locked in ✦' : x.outcome === 'early' ? 'Extra practice' : x.outcome === 'hold' ? 'Same gap again' : 'Moving up'}</h3>
+        <p class="muted">${msg}</p>${stageTrack(x.level)}</div>
+    </section>`;
+  }
+
+  function viewRecall(ch) {
+    if (run && run.cid === ch.id && run.source === 'recall') return run.finished ? viewResults(ch) : viewQuestion(ch);
+    const otherLive = run && run.cid === ch.id && !run.finished;
+    return `<div class="recall">
+      ${otherLive ? `<a class="livebar" href="#${ch.id}-test">You have an unfinished test. Finish or quit it before starting a recall session →</a>` : ''}
+      <section class="panel recall-intro">
+        <div>
+          <span class="eyebrow">Spaced recall</span>
+          <h2>Timed recall, then come back on schedule</h2>
+          <p class="muted">Take a timed test on one section. When it ends you see your result and the day to come back. Score 80% or more on the due day to move up a stage. Pass all five stages, with gaps of 1 → 3 → 7 → 16 → 35 days, and the section is locked in.</p>
+        </div>
+        <ul class="recall-rules">
+          <li><b>${SECS_PER_Q} s</b><span>per question, IMAT pace (60 questions in 100 min)</span></li>
+          <li><b class="good">≥ 80%</b><span>next stage, longer gap</span></li>
+          <li><b class="warnc">60–79%</b><span>same gap again</span></li>
+          <li><b class="bad">&lt; 60%</b><span>restart tomorrow</span></li>
+        </ul>
+      </section>
+      <div class="recall-grid">
+        ${ch.sections.map((s) => {
+          const n = recallCount(ch, s.id);
+          if (!n) return '';
+          const st = srsStatus(ch, s.id);
+          const last = st.r && st.r.sessions.length ? st.r.sessions[st.r.sessions.length - 1] : null;
+          const pill = { new: ['New', 'new'], due: ['Due today', 'due'], overdue: [relDay(st.days), 'due'], scheduled: [relDay(st.days), 'sched'], locked: ['Locked in', 'locked'] }[st.state];
+          const early = st.state === 'scheduled' || st.state === 'locked';
+          return `<article class="panel rcd ${st.state}">
+            <header><span class="eyebrow">Section ${s.id}</span><span class="pill ${pill[1]}">${esc(pill[0])}</span></header>
+            <h3>${fmt(s.title)}</h3>
+            ${stageTrack(st.level)}
+            <dl class="rcd-facts">
+              <div><dt>Next recall</dt><dd>${st.r ? fmtDay(st.r.next) : 'Start any time'}</dd></div>
+              <div><dt>Last score</dt><dd>${last ? pct(last.acc) + '%' : '–'}</dd></div>
+              <div><dt>Sessions</dt><dd>${st.r ? st.r.sessions.length : 0}</dd></div>
+            </dl>
+            <button class="btn ${early ? 'ghost' : 'primary'}" data-act="recall-start" data-id="${s.id}" type="button" ${otherLive ? 'disabled' : ''}>${early ? 'Practise early' : 'Start recall'} · ${n} Q · ${mmss(n * SECS_PER_Q)}</button>
+            ${early ? `<p class="muted small">Not due yet: an early session won't move you up a stage.</p>` : ''}
+          </article>`;
+        }).join('')}
+      </div>
+    </div>`;
   }
 
   /* ------------------------------------------------------------ mistakes */
@@ -591,7 +708,7 @@
       case 'pref': {
         const k = b.dataset.k; S.ui.prefs[k] = k === 'count' ? +b.dataset.v : b.dataset.v; save(); render(); return;
       }
-      case 'start': startRun(ch, { mode: S.ui.prefs.mode, count: +S.ui.prefs.count, topic: S.ui.prefs.topic }); render(true); return;
+      case 'start': if (run && !run.finished && run.source === 'recall') return; startRun(ch, { mode: S.ui.prefs.mode, count: +S.ui.prefs.count, topic: S.ui.prefs.topic }); render(true); return;
       case 'pick': {
         const it = run.items[run.i]; const v = +b.dataset.v;
         if (run.mode === 'practice' && it.locked) return;
@@ -617,7 +734,19 @@
       case 'res-filter': ui.resFilter = b.dataset.v; render(); return;
       case 'retry-wrong': {
         const ids = run.items.filter((it) => it.pick !== qById(ch.id, it.qid).a).map((it) => it.qid);
-        startRun(ch, { mode: 'practice', qids: ids, source: 'mistakes' }); render(true); return;
+        startRun(ch, { mode: 'practice', qids: ids, source: 'mistakes' });
+        if (r.tab === 'test') render(true); else go(ch.id + '-test');
+        return;
+      }
+      case 'recall-start': {
+        if (run && !run.finished) return;
+        const sid = b.dataset.id;
+        const pool = recallPool(ch, sid);
+        const missed = shuffle(pool.filter((q) => S.mistakes[q.id]));
+        const rest = shuffle(pool.filter((q) => !S.mistakes[q.id]));
+        const ids = missed.concat(rest).slice(0, RECALL_MAX).map((q) => q.id);
+        startRun(ch, { mode: 'exam', qids: shuffle(ids), source: 'recall', unit: sid });
+        render(true); return;
       }
       case 'new-test': run = null; render(true); return;
       case 'practice-mistakes': {
@@ -641,7 +770,7 @@
 
   // keyboard: A–E to pick, Enter to check/next
   document.addEventListener('keydown', (e) => {
-    if (!run || run.finished || parse().tab !== 'test' || e.target.matches('input,select,textarea')) return;
+    if (!run || run.finished || !['test', 'recall'].includes(parse().tab) || e.target.matches('input,select,textarea')) return;
     const k = e.key.toUpperCase();
     const idx = LETTERS.indexOf(k);
     if (idx >= 0) { const btn = document.querySelectorAll('.opt')[idx]; if (btn && !btn.disabled) btn.click(); }

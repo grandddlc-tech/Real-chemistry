@@ -6,6 +6,7 @@ A study app for IMAT chemistry. Open `index.html` in a browser (or serve the fol
 
 - **Review**: section notes rewritten from the coursebook, "Important" boxes, IMAT tips, worked examples, book questions with model answers, flashcards and a cheat sheet.
 - **Test**: IMAT-style 5-option questions drawn at random from the chapter bank. Practice mode shows the answer after each question; Exam mode is timed at IMAT pace (100 s per question). Scoring: +1.5 / −0.4 / 0.
+- **Recall**: spaced, timed recall per section (100 s per question, IMAT pace). After each session the app sets the next date: 80%+ on the due day moves up a stage (gaps of 1, 3, 7, 16, 35 days), 60–79% repeats the gap, under 60% restarts. Five stages lock the section in.
 - **Figures**: interactive redrawn figures (particle model, Boyle, Charles, syringe oven, vapour equilibrium, boiling point curve) and a pV = nRT solver.
 - **Mistakes**: every wrong or skipped question with its explanation. Answer it correctly later and it moves out of the list.
 - **Progress**: accuracy history, topic strengths, review checklist.

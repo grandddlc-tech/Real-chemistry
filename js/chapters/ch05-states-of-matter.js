@@ -21,6 +21,9 @@ window.IMAT.chapters.push({
     liquids: `Liquids & vapour pressure`
   },
 
+  /* which review section each topic belongs to (used by spaced recall) */
+  topicSection: { states: '5.1', kinetic: '5.2', ideal: '5.2', laws: '5.2', equation: '5.2', mr: '5.2', liquids: '5.3' },
+
   /* ------------------------------------------------------------------ */
   sections: [
     {
@@ -462,6 +465,56 @@ window.IMAT.chapters.push({
     { id: 'c5q42', topic: 'liquids', d: 1,
       q: `Which change of state requires energy to be transferred TO the substance?`,
       o: [`Steam condensing on a window`, `Water freezing`, `Water boiling`, `Molten wax solidifying`, `A vapour liquefying`],
-      a: 2, ex: `Boiling needs energy to overcome the attractions between particles. Condensing, freezing and solidifying all transfer energy FROM the substance.` }
+      a: 2, ex: `Boiling needs energy to overcome the attractions between particles. Condensing, freezing and solidifying all transfer energy FROM the substance.` },
+
+    { id: 'c5q43', topic: 'states', d: 1,
+      q: `Which statement explains why a liquid has a fixed volume but no fixed shape?`,
+      o: [`Its particles are far apart and move freely`, `Its particles are close together but can move past each other`, `Its particles are held in fixed positions`, `There are no forces between its particles`, `Its particles are arranged in a regular lattice`],
+      a: 1, ex: `Close particles give a fixed volume (they can hardly be pushed closer). Because they can slide past each other, the liquid flows and takes the shape of its container.` },
+
+    { id: 'c5q44', topic: 'states', d: 1,
+      q: `Which substance is a gas at room temperature and pressure because only weak forces act between its particles?`,
+      o: [`Sodium chloride`, `Silicon(IV) oxide`, `Iron`, `Argon`, `Copper`],
+      a: 3, ex: `Argon is simple atomic: only weak forces act between the atoms, so little energy is needed to separate them. The other four are giant structures and are solids at r.t.p.` },
+
+    { id: 'c5q45', topic: 'states', d: 1,
+      q: `Iron is an example of which type of structure?`,
+      o: [`Simple molecular`, `Giant ionic`, `Giant metallic`, `Giant molecular`, `Simple atomic`],
+      a: 2, ex: `Iron and copper are the coursebook's examples of giant metallic structures.` },
+
+    { id: 'c5q46', topic: 'states', d: 2,
+      q: `Noble gases are treated as having a simple molecular structure even though they:`,
+      o: [`form giant lattices`, `exist as isolated atoms`, `are made of ions`, `contain covalent bonds between atoms`, `are liquids at room temperature`],
+      a: 1, ex: `Noble gases exist as single, isolated atoms, but their physical properties are similar to those of simple molecular gases.` },
+
+    { id: 'c5q47', topic: 'states', d: 2,
+      q: `Which describes what happens to the particles when a solid melts?`,
+      o: [`They change from vibrating about fixed positions to sliding past each other`, `They become far apart and move freely`, `They stop moving`, `Their arrangement becomes more regular`, `The particles themselves get bigger`],
+      a: 0, ex: `On melting, particles gain enough energy to leave their fixed positions and slide past each other, but they stay close together. Far apart and moving freely describes a gas.` },
+
+    { id: 'c5q48', topic: 'states', d: 1,
+      q: `A substance has a fixed shape and cannot be compressed. Its particles are:`,
+      o: [`far apart, random and moving fast`, `close together, mostly random and sliding past each other`, `touching, usually regular and only vibrating`, `far apart and regular`, `touching and moving freely`],
+      a: 2, ex: `A fixed shape and no compression describe a solid: its particles touch, are usually in a regular arrangement and can only vibrate.` },
+
+    { id: 'c5q49', topic: 'liquids', d: 1,
+      q: `The melting point of a solid is the temperature at which it changes to a liquid:`,
+      o: [`at any pressure`, `at 1 atmosphere pressure`, `when its vapour pressure is zero`, `at 0 °C`, `when all its bonds are broken`],
+      a: 1, ex: `By definition the melting point is measured at 1 atmosphere pressure.` },
+
+    { id: 'c5q50', topic: 'liquids', d: 2,
+      q: `Why do molecular solids melt at lower temperatures than ionic solids?`,
+      o: [`Molecular solids have stronger covalent bonds`, `Only weak intermolecular forces must be overcome`, `Molecular solids contain ions`, `Ionic solids have weaker bonding`, `Molecular solids have more particles`],
+      a: 1, ex: `Melting a molecular solid only overcomes the weak forces between molecules; the covalent bonds inside molecules are not broken. Ionic bonding is very strong.` },
+
+    { id: 'c5q51', topic: 'liquids', d: 1,
+      q: `When steam condenses to form liquid water:`,
+      o: [`energy is transferred to the steam`, `energy is transferred from the steam to the surroundings`, `no energy is transferred`, `the water molecules gain kinetic energy`, `the forces between molecules become weaker`],
+      a: 1, ex: `Condensation is the reverse of boiling, so the energy transfer is reversed: energy is transferred FROM the steam.` },
+
+    { id: 'c5q52', topic: 'liquids', d: 2,
+      q: `Water and its vapour are at equilibrium in a closed container at constant temperature. Which is constant?`,
+      o: [`The number of molecules leaving the liquid, which is zero`, `The level of the liquid, which keeps falling`, `The concentration of water molecules in the vapour`, `The vapour pressure, which keeps rising`, `The temperature of the vapour, which rises`],
+      a: 2, ex: `At equilibrium molecules leave and return at the same rate, so the concentration of molecules in the vapour (and the vapour pressure) stays constant. Molecules still move in both directions.` }
   ]
 });
